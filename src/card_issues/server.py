@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
+from card_issues import chroma_store
+
 mcp = FastMCP(
     name="visa-guidelines",
     instructions="Read-only MCP server for Visa dispute guidelines. "
@@ -29,7 +31,32 @@ def visa_rules_search(
         List of matching rule sections, each with fields:
         rule_id, section, summary, and reference.
     """
-    return [{"message": "Message received"}]
+    query = f"{transaction_type} {reason_code} {' '.join(evidence_flags)}"
+
+    # Optionally narrow by condition family derived from the reason_code prefix
+    where: dict | None = None
+    prefix = reason_code.split(".")[0]
+    if prefix.isdigit():
+        where = {"condition_family": {"$eq": int(prefix)}}
+
+    hits = chroma_store.search(query, n_results=5, where=where)
+
+    if not hits:
+        # Fall back to unfiltered search
+        hits = chroma_store.search(query, n_results=5)
+
+    return [
+        {
+            "rule_id": h["metadata"].get("condition_id", h["id"]),
+            "section": h["metadata"].get("title", ""),
+            "summary": h["document"][:400],
+            "reference": (
+                f"Visa Dispute Management Guidelines – "
+                f"Condition {h['metadata'].get('condition_id', h['id'])}"
+            ),
+        }
+        for h in hits
+    ]
 
 
 @mcp.tool()
