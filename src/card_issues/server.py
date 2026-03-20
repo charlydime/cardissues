@@ -91,7 +91,18 @@ def kb_fallback(question: str) -> dict:
         - confidence (float) — match confidence score between 0.0 and 1.0
         - manual_review (bool) — True when confidence is too low for automation
     """
-    return {"message": "Message received"}
+    hits = chroma_store.search(question, n_results=1)
+    if not hits:
+        return {"answer": "", "confidence": 0.0, "manual_review": True}
+
+    top = hits[0]
+    # Cosine distance in [0, 2]; with normalised vectors typically in [0, 1].
+    # Convert to a confidence score in [0, 1].
+    confidence = round(max(0.0, 1.0 - top["distance"]), 4)
+    answer = top["document"][:800] if confidence >= 0.3 else ""
+    manual_review = confidence < 0.5
+
+    return {"answer": answer, "confidence": confidence, "manual_review": manual_review}
 
 
 def main() -> None:
