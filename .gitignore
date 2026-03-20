@@ -1,0 +1,23 @@
+# Virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Generated data
+data/chroma/
+data/formulary.db
+
+# PDF source (add locally — see AGENTS.md)
+visa-guidelines.pdf
+
+# Environment secrets
+.env
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,30 @@
+[project]
+name = "card-issues"
+version = "0.1.0"
+description = "Read-only MCP server for Visa dispute guidelines"
+requires-python = ">=3.11"
+dependencies = [
+    "fastmcp>=2.0",
+    "chromadb>=0.5",
+    "sqlalchemy>=2.0",
+    "pdfplumber>=0.11",
+    "polars>=1.0",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+visa-guidelines = "card_issues.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/card_issues"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
