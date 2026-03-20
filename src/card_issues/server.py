@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from card_issues import chroma_store
+from card_issues import chroma_store, sqlite_store
 
 mcp = FastMCP(
     name="visa-guidelines",
@@ -72,7 +72,7 @@ def merchant_dispute_lookup(merchant_id: str) -> dict:
         - recent_disputes (list of dicts with date, reason_code, resolution)
         - resolution_stats (dict with counts per resolution outcome)
     """
-    return {"message": "Message received"}
+    return sqlite_store.get_merchant_disputes(merchant_id)
 
 
 @mcp.tool()
