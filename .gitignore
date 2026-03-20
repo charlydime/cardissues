@@ -10,7 +10,7 @@ __pycache__/
 
 # Generated data
 data/chroma/
-data/formulary.db
+data/merchant.db
 
 # PDF source (add locally — see AGENTS.md)
 visa-guidelines.pdf

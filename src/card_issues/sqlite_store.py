@@ -9,7 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Session
 
 load_dotenv()
 
-_DB_PATH = os.getenv("DB_PATH", "data/formulary.db")
+_DB_PATH = os.getenv("DB_PATH", "data/merchant.db")
 _engine = create_engine(f"sqlite:///{_DB_PATH}", echo=False)
 
 

@@ -29,7 +29,7 @@ scripts/
 data/
   visa-guidelines.pdf        ← Source PDF (not committed — add locally)
   chroma/            ← Persisted ChromaDB vector store (generated)
-  formulary.db       ← SQLite database (generated)
+  merchant.db        ← SQLite database (generated)
 ```
 
 ---

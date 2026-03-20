@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "visa-guidelines": {
+      "command": "uv",
+      "args": ["run", "visa-guidelines"],
+      "cwd": "${workspaceFolder}"
+    }
+  }
+}
