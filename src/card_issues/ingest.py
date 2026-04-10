@@ -1,7 +1,9 @@
-from __future__ import annotations
-
 """Ingest visa-guidelines.pdf into ChromaDB for visa_rules_search."""
 
+from __future__ import annotations
+
+import argparse
+import datetime
 import os
 import re
 import sys
@@ -93,11 +95,39 @@ def extract_conditions(pdf_path: Path) -> pl.DataFrame:
     return pl.DataFrame(list(merged.values()))
 
 
-def ingest(pdf_path: Path | None = None) -> None:
+def _print_index_state(pdf_path: Path) -> None:
+    """Print the current ChromaDB index state compared to the PDF on disk."""
+    from card_issues.chroma_store import get_collection_info  # noqa: PLC0415
+
+    info = get_collection_info()
+    print(f"Index state: {info['count']} chunks in ChromaDB collection.")
+    if info["last_ingest"]:
+        print(f"  Last ingested : {info['last_ingest']}")
+    else:
+        print("  Last ingested : (never)")
+    if pdf_path.exists():
+        mtime = datetime.datetime.fromtimestamp(
+            pdf_path.stat().st_mtime, tz=datetime.UTC
+        ).isoformat()
+        print(f"  PDF last modified: {mtime}")
+    else:
+        print(f"  PDF last modified: (not found at {pdf_path})")
+
+
+def ingest(pdf_path: Path | None = None, force: bool = False) -> None:
     path = pdf_path or _PDF_PATH
+    _print_index_state(path)
+
     if not path.exists():
         print(f"ERROR: PDF not found at {path}", file=sys.stderr)
         sys.exit(1)
+
+    if force:
+        from card_issues.chroma_store import delete_collection  # noqa: PLC0415
+
+        print("--force: dropping existing ChromaDB collection …")
+        delete_collection()
+        print("Collection dropped. Rebuilding from scratch …")
 
     print(f"Parsing {path} …")
     df = extract_conditions(path)
@@ -126,4 +156,18 @@ def ingest(pdf_path: Path | None = None) -> None:
 
 
 if __name__ == "__main__":
-    ingest()
+    parser = argparse.ArgumentParser(description="Ingest visa-guidelines.pdf into ChromaDB.")
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Drop and rebuild the ChromaDB collection from scratch.",
+    )
+    parser.add_argument(
+        "--pdf",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="Path to the PDF file (defaults to $PDF_PATH or data/visa-guidelines.pdf).",
+    )
+    args = parser.parse_args()
+    ingest(pdf_path=args.pdf, force=args.force)

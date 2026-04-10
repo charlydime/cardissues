@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime
+import json
 import os
 from pathlib import Path
 
@@ -11,6 +13,7 @@ load_dotenv()
 
 _COLLECTION_NAME = "visa_rules"
 _DEFAULT_CHROMA_PATH = Path(__file__).parent.parent.parent / "data" / "chroma"
+_INGEST_META_FILE = ".last_ingest"
 
 
 def _chroma_path() -> Path:
@@ -20,13 +23,46 @@ def _chroma_path() -> Path:
     return p
 
 
+def _meta_file() -> Path:
+    return _chroma_path() / _INGEST_META_FILE
+
+
+def _client() -> chromadb.PersistentClient:
+    return chromadb.PersistentClient(path=str(_chroma_path()))
+
+
 def get_collection() -> chromadb.Collection:
-    client = chromadb.PersistentClient(path=str(_chroma_path()))
-    return client.get_or_create_collection(
+    return _client().get_or_create_collection(
         name=_COLLECTION_NAME,
         embedding_function=DefaultEmbeddingFunction(),
         metadata={"hnsw:space": "cosine"},
     )
+
+
+def get_collection_info() -> dict:
+    """Return chunk count and last-ingest ISO timestamp (or None if not yet ingested)."""
+    collection = get_collection()
+    count = collection.count()
+    last_ingest: str | None = None
+    meta_path = _meta_file()
+    if meta_path.exists():
+        try:
+            last_ingest = json.loads(meta_path.read_text())["last_ingest"]
+        except (KeyError, ValueError):
+            pass
+    return {"count": count, "last_ingest": last_ingest}
+
+
+def delete_collection() -> None:
+    """Drop the ChromaDB collection and remove the ingest metadata file."""
+    client = _client()
+    try:
+        client.delete_collection(name=_COLLECTION_NAME)
+    except Exception:
+        pass
+    meta_path = _meta_file()
+    if meta_path.exists():
+        meta_path.unlink()
 
 
 def upsert_chunks(
@@ -36,6 +72,9 @@ def upsert_chunks(
 ) -> None:
     collection = get_collection()
     collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+    _meta_file().write_text(
+        json.dumps({"last_ingest": datetime.datetime.now(datetime.UTC).isoformat()})
+    )
 
 
 def search(
