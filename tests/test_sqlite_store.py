@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 
-os.environ.setdefault("DB_PATH", ":memory:")
-
-from card_issues import sqlite_store  # noqa: E402
+from card_issues import sqlite_store
 
 
 @pytest.fixture(autouse=True)
