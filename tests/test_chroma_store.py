@@ -22,7 +22,7 @@ class _FakeEmbedding(chromadb.EmbeddingFunction):
     def name(self) -> str:
         return "fake-embedding"
 
-    def __call__(self, input: list[str]) -> list[list[float]]:  # noqa: A002
+    def __call__(self, input: list[str]) -> list[list[float]]:  # type: ignore[override]  # noqa: A002
         # Deterministic: hash the text into a stable 16-dim vector.
         vectors = []
         for text in input:
