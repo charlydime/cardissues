@@ -48,7 +48,7 @@ def get_collection_info() -> dict:
     if meta_path.exists():
         try:
             last_ingest = json.loads(meta_path.read_text())["last_ingest"]
-        except (KeyError, ValueError):
+        except (KeyError, ValueError, json.JSONDecodeError):
             pass
     return {"count": count, "last_ingest": last_ingest}
 
@@ -58,8 +58,8 @@ def delete_collection() -> None:
     client = _client()
     try:
         client.delete_collection(name=_COLLECTION_NAME)
-    except Exception:
-        pass
+    except ValueError:
+        pass  # collection did not exist
     meta_path = _meta_file()
     if meta_path.exists():
         meta_path.unlink()
