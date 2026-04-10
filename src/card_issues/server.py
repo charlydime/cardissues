@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from card_issues import chroma_store, sqlite_store
+from card_issues import chroma_store, sql_generator, sqlite_store
 
 mcp = FastMCP(
     name="visa-guidelines",
@@ -103,6 +103,46 @@ def kb_fallback(question: str) -> dict:
     manual_review = confidence < 0.5
 
     return {"answer": answer, "confidence": confidence, "manual_review": manual_review}
+
+
+@mcp.tool()
+def generate_sql_query(question: str) -> str:
+    """Translate a natural-language question into a SQL SELECT statement.
+
+    Use this tool when merchant-specific structured data is needed and
+    ``merchant_dispute_lookup`` does not provide the required granularity.
+    Pass the returned SQL string directly to ``execute_sql_query``.
+
+    Args:
+        question: Plain-English question about dispute data
+                  (e.g. "disputes for merchant M123 with reason code 10.4").
+
+    Returns:
+        A SQL SELECT statement string ready to pass to ``execute_sql_query``.
+
+    Raises:
+        ValueError: If no template matches the question.
+    """
+    return sql_generator.generate_sql(question)
+
+
+@mcp.tool()
+def execute_sql_query(sql: str) -> list[dict]:
+    """Execute a read-only SQL SELECT statement against the disputes database.
+
+    Only SELECT statements are permitted; any other statement type raises a
+    ``ValueError`` before touching the database.
+
+    Args:
+        sql: A SQL SELECT statement (typically produced by ``generate_sql_query``).
+
+    Returns:
+        List of rows as dictionaries keyed by column name.
+
+    Raises:
+        ValueError: If ``sql`` is not a SELECT statement.
+    """
+    return sqlite_store.execute_readonly(sql)
 
 
 def main() -> None:
