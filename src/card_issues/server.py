@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from card_issues import chroma_store, sqlite_store
+from card_issues import chroma_store, sql_generator, sqlite_store
 
 mcp = FastMCP(
     name="visa-guidelines",
@@ -103,6 +103,34 @@ def kb_fallback(question: str) -> dict:
     manual_review = confidence < 0.5
 
     return {"answer": answer, "confidence": confidence, "manual_review": manual_review}
+
+
+@mcp.tool()
+def query_disputes(question: str) -> dict:
+    """Translate a natural-language question into SQL and execute it against the disputes database.
+
+    Use this tool when you need to query disputes with a specific filter
+    (merchant, reason code, date range, amount, or resolution outcome).
+
+    Args:
+        question: Plain-English question about disputes
+                  (e.g. "disputes for merchant M123",
+                   "disputes between 2025-01-01 and 2025-03-31").
+
+    Returns:
+        Dictionary with:
+        - sql (str) — parameterised SELECT statement, or empty string if no
+          template matched.
+        - params (dict) — bind parameters extracted from the question.
+        - matched (bool) — False when the question was not recognised.
+        - rows (list[dict]) — query results (only present when matched is True).
+    """
+    result = sql_generator.generate_sql_query(question)
+    if not result["matched"]:
+        return result
+
+    rows = sqlite_store.execute_readonly(str(result["sql"]), dict(result["params"]))  # type: ignore[arg-type]
+    return {**result, "rows": rows}
 
 
 def main() -> None:
