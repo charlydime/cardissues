@@ -4,7 +4,7 @@ import os
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from sqlalchemy import Column, Float, Integer, String, Text, create_engine, text
+from sqlalchemy import Column, Float, Integer, String, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session
 
 load_dotenv()
