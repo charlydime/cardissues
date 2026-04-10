@@ -47,7 +47,7 @@ def visa_rules_search(
 
     return [
         {
-            "rule_id": h["id"],
+            "rule_id": h["metadata"].get("condition_id", h["id"]),
             "section": (
                 f"{h['metadata'].get('title', '')} – {h['metadata']['subsection']}"
                 if h["metadata"].get("subsection") not in (None, "full", "preamble")

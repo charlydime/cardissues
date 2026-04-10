@@ -33,6 +33,9 @@ _SECTION_BANNER = re.compile(r"^3 Dispute Conditions\s*\n", re.MULTILINE)
 # Subsection headers are typically wh-questions or short imperative lines
 # (e.g. "Why did I get this notification?", "How should I respond?",
 # "What evidence should I provide?", "Important Information", "Time Limits").
+# Pattern lengths: wh-question bodies are 3–79 chars (at least 3 to avoid false
+# positives on very short phrases, at most 79 to stay within a single display line);
+# "Important …" and "Time Limit …" suffixes are 2–60 chars.
 _SUBSECTION_HEADER = re.compile(
     r"(?m)^("
     r"(?:Why|How|What|When|Who|Where)[^\n]{3,79}\?"
@@ -46,6 +49,8 @@ def _subsection_slug(header: str) -> str:
     """Convert a subsection header string into a short lowercase slug."""
     slug = header.lower()
     slug = re.sub(r"[^a-z0-9]+", "_", slug)
+    # Truncate to 40 chars for readability; ChromaDB IDs have no hard limit
+    # but short slugs keep collection introspection manageable.
     return slug.strip("_")[:40]
 
 
