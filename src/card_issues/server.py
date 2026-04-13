@@ -92,22 +92,53 @@ def kb_fallback(question: str) -> dict:
 
     Returns:
         Dictionary with:
-        - answer (str) — best-effort KB answer, or empty string when unknown
+        - answer (str) — best-effort KB answer combining the top matching
+          sections, or empty string when no confident match is found.
+          Each section is prefixed with its title for easy citation.
         - confidence (float) — match confidence score between 0.0 and 1.0
+          derived from the top result's cosine similarity.
         - manual_review (bool) — True when confidence is too low for automation
+        - sources (list[str]) — condition IDs of the matched KB entries,
+          ordered by relevance.
     """
-    hits = chroma_store.search(question, n_results=1)
+    hits = chroma_store.search(question, n_results=3)
     if not hits:
-        return {"answer": "", "confidence": 0.0, "manual_review": True}
+        return {"answer": "", "confidence": 0.0, "manual_review": True, "sources": []}
 
     top = hits[0]
     # Cosine distance in [0, 2]; with normalised vectors typically in [0, 1].
     # Convert to a confidence score in [0, 1].
     confidence = round(max(0.0, 1.0 - top["distance"]), 4)
-    answer = top["document"][:800] if confidence >= 0.3 else ""
     manual_review = confidence < 0.5
 
-    return {"answer": answer, "confidence": confidence, "manual_review": manual_review}
+    sources: list[str] = [h["metadata"].get("condition_id", h["id"]) for h in hits]
+
+    if confidence < 0.3:
+        return {
+            "answer": "",
+            "confidence": confidence,
+            "manual_review": manual_review,
+            "sources": sources,
+        }
+
+    fragments: list[str] = []
+    for hit in hits:
+        hit_confidence = round(max(0.0, 1.0 - hit["distance"]), 4)
+        if hit_confidence < 0.3:
+            break
+        section = hit["metadata"].get("title", "")
+        excerpt = hit["document"][:400]
+        fragment = f"[{section}]\n{excerpt}" if section else excerpt
+        fragments.append(fragment)
+
+    answer = "\n\n".join(fragments)
+
+    return {
+        "answer": answer,
+        "confidence": confidence,
+        "manual_review": manual_review,
+        "sources": sources,
+    }
 
 
 @mcp.tool()
