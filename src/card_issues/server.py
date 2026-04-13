@@ -48,7 +48,12 @@ def visa_rules_search(
     return [
         {
             "rule_id": h["metadata"].get("condition_id", h["id"]),
-            "section": h["metadata"].get("title", ""),
+            "section": (
+                f"{h['metadata'].get('title', '')} – {h['metadata']['subsection']}"
+                if h["metadata"].get("subsection") not in (None, "full", "preamble")
+                else h["metadata"].get("title", "")
+            ),
+            "subsection": h["metadata"].get("subsection", "full"),
             "summary": h["document"][:400],
             "reference": (
                 f"Visa Dispute Management Guidelines – "

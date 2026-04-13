@@ -30,6 +30,69 @@ _FOOTER = re.compile(
 )
 _SECTION_BANNER = re.compile(r"^3 Dispute Conditions\s*\n", re.MULTILINE)
 
+# Subsection headers are typically wh-questions or short imperative lines
+# (e.g. "Why did I get this notification?", "How should I respond?",
+# "What evidence should I provide?", "Important Information", "Time Limits").
+# Pattern lengths: wh-question bodies are 3–79 chars (at least 3 to avoid false
+# positives on very short phrases, at most 79 to stay within a single display line);
+# "Important …" and "Time Limit …" suffixes are 2–60 chars.
+_SUBSECTION_HEADER = re.compile(
+    r"(?m)^("
+    r"(?:Why|How|What|When|Who|Where)[^\n]{3,79}\?"
+    r"|Important\s+[^\n]{2,60}"
+    r"|Time\s+[Ll]imit[^\n]{0,60}"
+    r")\s*$"
+)
+
+
+def _subsection_slug(header: str) -> str:
+    """Convert a subsection header string into a short lowercase slug."""
+    slug = header.lower()
+    slug = re.sub(r"[^a-z0-9]+", "_", slug)
+    # Truncate to 40 chars for readability; ChromaDB IDs have no hard limit
+    # but short slugs keep collection introspection manageable.
+    return slug.strip("_")[:40]
+
+
+def split_into_subsections(
+    condition_id: str,
+    title: str,
+    body: str,
+) -> list[tuple[str, str, str]]:
+    """Split a condition body by subsection headers.
+
+    Returns a list of ``(chunk_id, subsection_name, document_text)`` tuples.
+    When no subsection headers are found the whole body is returned as a single
+    chunk whose ``chunk_id`` equals ``condition_id`` (preserving backwards
+    compatibility with previously ingested data).
+    """
+    matches = list(_SUBSECTION_HEADER.finditer(body))
+
+    if not matches:
+        doc = f"Condition {condition_id} – {title}\n\n{body}"
+        return [(condition_id, "full", doc)]
+
+    chunks: list[tuple[str, str, str]] = []
+
+    # Text that precedes the first subsection header
+    preamble = body[: matches[0].start()].strip()
+    if preamble:
+        doc = f"Condition {condition_id} – {title}\n\n{preamble}"
+        chunks.append((f"{condition_id}::preamble", "preamble", doc))
+
+    for idx, match in enumerate(matches):
+        header = match.group(1).strip()
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(body)
+        section_body = body[start:end].strip()
+
+        slug = _subsection_slug(header)
+        chunk_id = f"{condition_id}::{slug}"
+        doc = f"Condition {condition_id} – {title}\n{header}\n\n{section_body}"
+        chunks.append((chunk_id, header, doc))
+
+    return chunks
+
 
 def _infer_tx_type(title: str, body: str) -> str:
     text = (title + " " + body).lower()
@@ -106,23 +169,25 @@ def ingest(pdf_path: Path | None = None) -> None:
     # Late import so the module is importable even without chromadb at parse time
     from card_issues.chroma_store import upsert_chunks  # noqa: PLC0415
 
-    ids = df["condition_id"].to_list()
-    documents = [
-        f"Condition {row['condition_id']} – {row['title']}\n\n{row['body']}"
-        for row in df.iter_rows(named=True)
-    ]
-    metadatas = [
-        {
+    all_ids: list[str] = []
+    all_documents: list[str] = []
+    all_metadatas: list[dict] = []
+
+    for row in df.iter_rows(named=True):
+        chunks = split_into_subsections(row["condition_id"], row["title"], row["body"])
+        base_meta = {
             "condition_id": row["condition_id"],
             "condition_family": int(row["condition_id"].split(".")[0]),
             "title": row["title"],
             "transaction_type": row["transaction_type"],
         }
-        for row in df.iter_rows(named=True)
-    ]
+        for chunk_id, subsection, document in chunks:
+            all_ids.append(chunk_id)
+            all_documents.append(document)
+            all_metadatas.append({**base_meta, "subsection": subsection})
 
-    upsert_chunks(ids, documents, metadatas)
-    print(f"Upserted {len(ids)} chunks into ChromaDB.")
+    upsert_chunks(all_ids, all_documents, all_metadatas)
+    print(f"Upserted {len(all_ids)} chunks into ChromaDB.")
 
 
 if __name__ == "__main__":
