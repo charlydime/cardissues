@@ -41,6 +41,8 @@ data/
 | `visa_rules_search` | `(transaction_type: str, reason_code: str, evidence_flags: list[str])` | `list[dict]` — matching rule sections with rule_id, section, summary, reference |
 | `merchant_dispute_lookup` | `(merchant_id: str)` | `dict` — total_disputes, recent_disputes list, resolution_stats |
 | `kb_fallback` | `(question: str)` | `dict` — answer, confidence score, manual_review flag |
+| `generate_sql_query` | `(question: str)` | `str` — SQL SELECT statement derived from the natural-language question |
+| `execute_sql_query` | `(sql: str)` | `list[dict]` — rows as dicts; rejects non-SELECT statements |
 
 All tools are synchronous and return JSON-serialisable values. Do not add
 `async` to tool functions without updating the FastMCP configuration.

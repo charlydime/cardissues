@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from card_issues import chroma_store, sql_generator, sqlite_store
+from card_issues import chroma_store, sql_generator, sql_generator, sqlite_store
 
 mcp = FastMCP(
     name="visa-guidelines",
@@ -106,31 +106,43 @@ def kb_fallback(question: str) -> dict:
 
 
 @mcp.tool()
-def query_disputes(question: str) -> dict:
-    """Translate a natural-language question into SQL and execute it against the disputes database.
+def generate_sql_query(question: str) -> str:
+    """Translate a natural-language question into a SQL SELECT statement.
 
-    Use this tool when you need to query disputes with a specific filter
-    (merchant, reason code, date range, amount, or resolution outcome).
+    Use this tool when merchant-specific structured data is needed and
+    ``merchant_dispute_lookup`` does not provide the required granularity.
+    Pass the returned SQL string directly to ``execute_sql_query``.
 
     Args:
-        question: Plain-English question about disputes
-                  (e.g. "disputes for merchant M123",
-                   "disputes between 2025-01-01 and 2025-03-31").
+        question: Plain-English question about dispute data
+                  (e.g. "disputes for merchant M123 with reason code 10.4").
 
     Returns:
-        Dictionary with:
-        - sql (str) — parameterised SELECT statement, or empty string if no
-          template matched.
-        - params (dict) — bind parameters extracted from the question.
-        - matched (bool) — False when the question was not recognised.
-        - rows (list[dict]) — query results (only present when matched is True).
-    """
-    result = sql_generator.generate_sql_query(question)
-    if not result["matched"]:
-        return result
+        A SQL SELECT statement string ready to pass to ``execute_sql_query``.
 
-    rows = sqlite_store.execute_readonly(str(result["sql"]), dict(result["params"]))  # type: ignore[arg-type]
-    return {**result, "rows": rows}
+    Raises:
+        ValueError: If no template matches the question.
+    """
+    return sql_generator.generate_sql(question)
+
+
+@mcp.tool()
+def execute_sql_query(sql: str) -> list[dict]:
+    """Execute a read-only SQL SELECT statement against the disputes database.
+
+    Only SELECT statements are permitted; any other statement type raises a
+    ``ValueError`` before touching the database.
+
+    Args:
+        sql: A SQL SELECT statement (typically produced by ``generate_sql_query``).
+
+    Returns:
+        List of rows as dictionaries keyed by column name.
+
+    Raises:
+        ValueError: If ``sql`` is not a SELECT statement.
+    """
+    return sqlite_store.execute_readonly(sql)
 
 
 def main() -> None:

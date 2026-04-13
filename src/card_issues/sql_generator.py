@@ -2,171 +2,97 @@ from __future__ import annotations
 
 import re
 
-import polars as pl
-
-# ---------------------------------------------------------------------------
-# Template registry
-# Each entry is a (compiled_pattern, sql_template) tuple.
-# Named groups in the pattern become :named bind-parameters in the template.
-# ---------------------------------------------------------------------------
-
+# Each entry is (compiled_pattern, sql_template).
+# Named groups in the pattern must match {placeholder} names in the template.
 _TEMPLATES: list[tuple[re.Pattern[str], str]] = [
-    # disputes for a specific merchant
     (
         re.compile(
-            r"disputes?\s+(?:for|by|of)\s+merchant\s+(?P<merchant_id>\S+)",
+            r"disputes?\s+for\s+merchant\s+['\"]?(?P<merchant_id>[A-Za-z0-9_\-]+)['\"]?",
             re.IGNORECASE,
         ),
-        "SELECT * FROM disputes WHERE merchant_id = :merchant_id ORDER BY date DESC",
+        "SELECT id, date, reason_code, resolution, amount, currency "
+        "FROM disputes WHERE merchant_id = '{merchant_id}' ORDER BY date DESC",
     ),
-    # disputes by reason code
     (
         re.compile(
-            r"disputes?\s+(?:with|for|by)\s+reason\s+code\s+(?P<reason_code>\S+)",
+            r"disputes?\s+with\s+reason\s+code\s+['\"]?(?P<reason_code>[0-9]+\.[0-9]+)['\"]?",
             re.IGNORECASE,
         ),
-        "SELECT * FROM disputes WHERE reason_code = :reason_code ORDER BY date DESC",
+        "SELECT id, merchant_id, date, resolution, amount, currency "
+        "FROM disputes WHERE reason_code = '{reason_code}' ORDER BY date DESC",
     ),
-    # disputes in a date range
     (
         re.compile(
-            r"disputes?\s+(?:between|from)\s+(?P<start_date>\d{4}-\d{2}-\d{2})"
-            r"\s+(?:and|to)\s+(?P<end_date>\d{4}-\d{2}-\d{2})",
+            r"(?:total\s+)?disputes?\s+(?:count|number|how\s+many)\s+for\s+merchant\s+"
+            r"['\"]?(?P<merchant_id>[A-Za-z0-9_\-]+)['\"]?",
             re.IGNORECASE,
         ),
-        "SELECT * FROM disputes WHERE date BETWEEN :start_date AND :end_date ORDER BY date DESC",
+        "SELECT COUNT(*) AS total_disputes FROM disputes WHERE merchant_id = '{merchant_id}'",
     ),
-    # disputes on or after a date
     (
         re.compile(
-            r"disputes?\s+(?:since|after|from)\s+(?P<start_date>\d{4}-\d{2}-\d{2})",
+            r"['\"]?(?P<resolution>merchant_won|chargeback|reversed)['\"]?\s+disputes?",
             re.IGNORECASE,
         ),
-        "SELECT * FROM disputes WHERE date >= :start_date ORDER BY date DESC",
+        "SELECT id, merchant_id, date, reason_code, amount, currency "
+        "FROM disputes WHERE resolution = '{resolution}' ORDER BY date DESC",
     ),
-    # disputes before a date
     (
         re.compile(
-            r"disputes?\s+before\s+(?P<end_date>\d{4}-\d{2}-\d{2})",
+            r"disputes?\s+(?:after|since|from)\s+(?P<start_date>\d{4}-\d{2}-\d{2})",
             re.IGNORECASE,
         ),
-        "SELECT * FROM disputes WHERE date < :end_date ORDER BY date DESC",
+        "SELECT id, merchant_id, date, reason_code, resolution, amount, currency "
+        "FROM disputes WHERE date >= '{start_date}' ORDER BY date DESC",
     ),
-    # disputes by resolution outcome
     (
         re.compile(
-            r"disputes?\s+(?:with|by)\s+resolution\s+(?P<resolution>\S+)",
+            r"disputes?\s+(?:before|until|up\s+to)\s+(?P<end_date>\d{4}-\d{2}-\d{2})",
             re.IGNORECASE,
         ),
-        "SELECT * FROM disputes WHERE resolution = :resolution ORDER BY date DESC",
+        "SELECT id, merchant_id, date, reason_code, resolution, amount, currency "
+        "FROM disputes WHERE date <= '{end_date}' ORDER BY date DESC",
     ),
-    # count disputes by reason code (summary / analytics)
     (
         re.compile(
-            r"(?:count|number|total)\s+(?:of\s+)?disputes?\s+by\s+reason",
+            r"disputes?\s+(?:greater|more|over|above)\s+than\s+\$?(?P<amount>[0-9]+(?:\.[0-9]+)?)",
             re.IGNORECASE,
         ),
-        "SELECT reason_code, COUNT(*) AS dispute_count "
-        "FROM disputes GROUP BY reason_code ORDER BY dispute_count DESC",
+        "SELECT id, merchant_id, date, reason_code, resolution, amount, currency "
+        "FROM disputes WHERE amount > {amount} ORDER BY amount DESC",
     ),
-    # count disputes by merchant (summary / analytics)
     (
         re.compile(
-            r"(?:count|number|total)\s+(?:of\s+)?disputes?\s+(?:per|by)\s+merchant",
+            r"(?:all\s+)?disputes?(?:\s+records?)?",
             re.IGNORECASE,
         ),
-        "SELECT merchant_id, COUNT(*) AS dispute_count "
-        "FROM disputes GROUP BY merchant_id ORDER BY dispute_count DESC",
-    ),
-    # disputes above a currency amount
-    (
-        re.compile(
-            r"disputes?\s+(?:above|over|greater\s+than)\s+(?P<amount>[\d.]+)",
-            re.IGNORECASE,
-        ),
-        "SELECT * FROM disputes WHERE amount > :amount ORDER BY amount DESC",
-    ),
-    # disputes below a currency amount
-    (
-        re.compile(
-            r"disputes?\s+(?:below|under|less\s+than)\s+(?P<amount>[\d.]+)",
-            re.IGNORECASE,
-        ),
-        "SELECT * FROM disputes WHERE amount < :amount ORDER BY amount DESC",
-    ),
-    # all disputes (catch-all)
-    (
-        re.compile(r"(?:all|list|show)\s+disputes?", re.IGNORECASE),
-        "SELECT * FROM disputes ORDER BY date DESC",
+        "SELECT id, merchant_id, date, reason_code, resolution, amount, currency "
+        "FROM disputes ORDER BY date DESC LIMIT 100",
     ),
 ]
 
 
-def _sanitise_params(raw: dict[str, str]) -> dict[str, str]:
-    """Sanitise and normalise captured regex groups using Polars.
+def generate_sql(question: str) -> str:
+    """Translate a natural-language question into a SQL SELECT statement.
 
-    Uses a single-row Polars DataFrame so that all transformations stay
-    within the Polars ecosystem (requirement from AGENTS.md).
-
-    Current transforms:
-    - Strip leading/trailing whitespace from every value.
-    - For columns whose name contains ``date``, coerce to ISO-8601
-      (YYYY-MM-DD) and reject malformed values.
-    - For columns whose name is ``amount``, coerce to a canonical float
-      string representation and reject non-numeric values.
-    """
-    if not raw:
-        return raw
-
-    df = pl.DataFrame({k: [v] for k, v in raw.items()})
-
-    # Trim whitespace on all string columns
-    df = df.with_columns([pl.col(c).str.strip_chars() for c in df.columns])
-
-    # Coerce date columns
-    date_cols = [c for c in df.columns if "date" in c]
-    for col in date_cols:
-        try:
-            df = df.with_columns(
-                pl.col(col).str.to_date("%Y-%m-%d").dt.strftime("%Y-%m-%d").alias(col)
-            )
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"Invalid date value for '{col}': {df[col][0]!r}") from exc
-
-    # Coerce amount columns
-    amount_cols = [c for c in df.columns if c == "amount"]
-    for col in amount_cols:
-        try:
-            df = df.with_columns(pl.col(col).cast(pl.Float64).cast(pl.String).alias(col))
-        except Exception as exc:  # noqa: BLE001
-            raise ValueError(f"Invalid amount value: {df[col][0]!r}") from exc
-
-    return {c: df[c][0] for c in df.columns}
-
-
-def generate_sql_query(question: str) -> dict[str, object]:
-    """Translate a natural-language *question* into a SQL query.
-
-    Iterates over ``_TEMPLATES`` in order and returns the first match.
+    Iterates over ``_TEMPLATES`` in order and returns the first match,
+    substituting named groups into the template.  Raises ``ValueError``
+    when no template matches the question.
 
     Args:
-        question: Plain-English question about disputes
-                  (e.g. "disputes for merchant M123").
+        question: Plain-English question about dispute data.
 
     Returns:
-        A dict with:
-        - ``sql`` (str): Parameterised SELECT statement.
-        - ``params`` (dict[str, str]): Bind parameters extracted from the question.
-        - ``matched`` (bool): ``True`` when a template matched, ``False`` otherwise.
+        A SQL SELECT statement string.
 
     Raises:
-        ValueError: Never — unrecognised questions return ``matched=False``.
+        ValueError: If no template matches the question.
     """
     for pattern, template in _TEMPLATES:
         m = pattern.search(question)
         if m:
-            raw_params = {k: v for k, v in m.groupdict().items() if v is not None}
-            params = _sanitise_params(raw_params)
-            return {"sql": template, "params": params, "matched": True}
-
-    return {"sql": "", "params": {}, "matched": False}
+            return template.format(**m.groupdict())
+    raise ValueError(
+        f"No SQL template matches the question: {question!r}. "
+        "Please rephrase or add a new template to sql_generator._TEMPLATES."
+    )
