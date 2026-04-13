@@ -107,7 +107,13 @@ uv run pytest
 cp /path/to/visa-guidelines.pdf data/visa-guidelines.pdf
 
 # 2. Run ingestion (PDF → ChromaDB + SQLite)
-uv run python -m visa-guidelines.ingest
+uv run python -m card_issues.ingest
+
+# 2a. Force-rebuild the ChromaDB index from scratch (drops existing collection)
+uv run python -m card_issues.ingest --force
+
+# 2b. Run ingestion with a custom PDF path
+uv run python -m card_issues.ingest --pdf /path/to/other.pdf
 
 # 3. Seed demo merchant data
 uv run python scripts/seed.py
