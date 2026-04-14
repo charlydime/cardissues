@@ -40,7 +40,7 @@ data/
 |---|---|---|
 | `visa_rules_search` | `(transaction_type: str, reason_code: str, evidence_flags: list[str])` | `list[dict]` — matching rule sections with rule_id, section, summary, reference |
 | `merchant_dispute_lookup` | `(merchant_id: str)` | `dict` — total_disputes, recent_disputes list, resolution_stats |
-| `kb_fallback` | `(question: str)` | `dict` — answer, confidence score, manual_review flag |
+| `kb_fallback` | `(question: str)` | `dict` — answer (str, sections prefixed with titles), confidence score (float), manual_review flag (bool), sources (list[str] of condition IDs) |
 
 All tools are synchronous and return JSON-serialisable values. Do not add
 `async` to tool functions without updating the FastMCP configuration.
@@ -83,10 +83,10 @@ All tools are synchronous and return JSON-serialisable values. Do not add
 uv sync
 
 # Run the MCP server — stdio transport (default for MCP clients)
-uv run visa-guidelines
+uv run card_issues
 
 # Run with FastMCP dev inspector — browser UI on http://localhost:5173
-uv run fastmcp dev src/visa-guidelines/server.py
+uv run fastmcp dev src/card_issues/server.py
 
 # Lint + format
 uv run ruff check --fix src/
@@ -105,7 +105,13 @@ uv run pytest
 cp /path/to/visa-guidelines.pdf data/visa-guidelines.pdf
 
 # 2. Run ingestion (PDF → ChromaDB + SQLite)
-uv run python -m visa-guidelines.ingest
+uv run python -m card_issues.ingest
+
+# 2a. Force-rebuild the ChromaDB index from scratch (drops existing collection)
+uv run python -m card_issues.ingest --force
+
+# 2b. Run ingestion with a custom PDF path
+uv run python -m card_issues.ingest --pdf /path/to/other.pdf
 
 # 3. Seed demo merchant data
 uv run python scripts/seed.py

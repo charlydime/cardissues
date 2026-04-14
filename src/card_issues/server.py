@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from card_issues import chroma_store, sqlite_store
+from card_issues import chroma_store, sql_generator, sql_generator, sqlite_store
 
 mcp = FastMCP(
     name="visa-guidelines",
@@ -48,7 +48,12 @@ def visa_rules_search(
     return [
         {
             "rule_id": h["metadata"].get("condition_id", h["id"]),
-            "section": h["metadata"].get("title", ""),
+            "section": (
+                f"{h['metadata'].get('title', '')} – {h['metadata']['subsection']}"
+                if h["metadata"].get("subsection") not in (None, "full", "preamble")
+                else h["metadata"].get("title", "")
+            ),
+            "subsection": h["metadata"].get("subsection", "full"),
             "summary": h["document"][:400],
             "reference": (
                 f"Visa Dispute Management Guidelines – "
@@ -87,22 +92,93 @@ def kb_fallback(question: str) -> dict:
 
     Returns:
         Dictionary with:
-        - answer (str) — best-effort KB answer, or empty string when unknown
+        - answer (str) — best-effort KB answer combining the top matching
+          sections, or empty string when no confident match is found.
+          Each section is prefixed with its title for easy citation.
         - confidence (float) — match confidence score between 0.0 and 1.0
+          derived from the top result's cosine similarity.
         - manual_review (bool) — True when confidence is too low for automation
+        - sources (list[str]) — condition IDs of the matched KB entries,
+          ordered by relevance.
     """
-    hits = chroma_store.search(question, n_results=1)
+    hits = chroma_store.search(question, n_results=3)
     if not hits:
-        return {"answer": "", "confidence": 0.0, "manual_review": True}
+        return {"answer": "", "confidence": 0.0, "manual_review": True, "sources": []}
 
     top = hits[0]
     # Cosine distance in [0, 2]; with normalised vectors typically in [0, 1].
     # Convert to a confidence score in [0, 1].
     confidence = round(max(0.0, 1.0 - top["distance"]), 4)
-    answer = top["document"][:800] if confidence >= 0.3 else ""
     manual_review = confidence < 0.5
 
-    return {"answer": answer, "confidence": confidence, "manual_review": manual_review}
+    sources: list[str] = [h["metadata"].get("condition_id", h["id"]) for h in hits]
+
+    if confidence < 0.3:
+        return {
+            "answer": "",
+            "confidence": confidence,
+            "manual_review": manual_review,
+            "sources": sources,
+        }
+
+    fragments: list[str] = []
+    for hit in hits:
+        hit_confidence = round(max(0.0, 1.0 - hit["distance"]), 4)
+        if hit_confidence < 0.3:
+            break
+        section = hit["metadata"].get("title", "")
+        excerpt = hit["document"][:400]
+        fragment = f"[{section}]\n{excerpt}" if section else excerpt
+        fragments.append(fragment)
+
+    answer = "\n\n".join(fragments)
+
+    return {
+        "answer": answer,
+        "confidence": confidence,
+        "manual_review": manual_review,
+        "sources": sources,
+    }
+
+
+@mcp.tool()
+def generate_sql_query(question: str) -> str:
+    """Translate a natural-language question into a SQL SELECT statement.
+
+    Use this tool when merchant-specific structured data is needed and
+    ``merchant_dispute_lookup`` does not provide the required granularity.
+    Pass the returned SQL string directly to ``execute_sql_query``.
+
+    Args:
+        question: Plain-English question about dispute data
+                  (e.g. "disputes for merchant M123 with reason code 10.4").
+
+    Returns:
+        A SQL SELECT statement string ready to pass to ``execute_sql_query``.
+
+    Raises:
+        ValueError: If no template matches the question.
+    """
+    return sql_generator.generate_sql(question)
+
+
+@mcp.tool()
+def execute_sql_query(sql: str) -> list[dict]:
+    """Execute a read-only SQL SELECT statement against the disputes database.
+
+    Only SELECT statements are permitted; any other statement type raises a
+    ``ValueError`` before touching the database.
+
+    Args:
+        sql: A SQL SELECT statement (typically produced by ``generate_sql_query``).
+
+    Returns:
+        List of rows as dictionaries keyed by column name.
+
+    Raises:
+        ValueError: If ``sql`` is not a SELECT statement.
+    """
+    return sqlite_store.execute_readonly(sql)
 
 
 def main() -> None:

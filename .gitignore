@@ -8,12 +8,7 @@ __pycache__/
 *.pyd
 .Python
 
-# Generated data
-data/chroma/
-data/merchant.db
 
-# PDF source (add locally — see AGENTS.md)
-visa-guidelines.pdf
 
 # Environment secrets
 .env

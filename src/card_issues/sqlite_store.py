@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import os
+import re
 from collections import defaultdict
 
 from dotenv import load_dotenv
-from sqlalchemy import Column, Float, Integer, String, Text, create_engine, text
+from sqlalchemy import Column, Float, Integer, String, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session
 
 load_dotenv()
@@ -49,17 +50,46 @@ def execute_readonly(sql: str, params: dict | None = None) -> list[dict]:
         return [dict(zip(cols, row)) for row in result.fetchall()]
 
 
+_MERCHANT_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
 def get_merchant_disputes(merchant_id: str) -> dict:
     """Return aggregated dispute data for the given merchant.
 
+    Args:
+        merchant_id: Non-empty string containing only letters, digits,
+                     hyphens, or underscores.
+
     Returns:
-        total_disputes (int), recent_disputes (list), resolution_stats (dict)
+        Dictionary with:
+        - found (bool) — False when no records exist for this merchant_id
+        - total_disputes (int)
+        - recent_disputes (list)
+        - resolution_stats (dict)
+
+    Raises:
+        ValueError: If merchant_id is empty or contains invalid characters.
     """
+    if not merchant_id:
+        raise ValueError("merchant_id must not be empty.")
+    if not _MERCHANT_ID_RE.match(merchant_id):
+        raise ValueError(
+            "merchant_id may only contain letters, digits, hyphens, and underscores."
+        )
+
     rows = execute_readonly(
         "SELECT date, reason_code, resolution, amount, currency "
         "FROM disputes WHERE merchant_id = :mid ORDER BY date DESC",
         {"mid": merchant_id},
     )
+
+    if not rows:
+        return {
+            "found": False,
+            "total_disputes": 0,
+            "recent_disputes": [],
+            "resolution_stats": {},
+        }
 
     resolution_stats: dict[str, int] = defaultdict(int)
     for row in rows:
@@ -77,6 +107,7 @@ def get_merchant_disputes(merchant_id: str) -> dict:
     ]
 
     return {
+        "found": True,
         "total_disputes": len(rows),
         "recent_disputes": recent,
         "resolution_stats": dict(resolution_stats),
