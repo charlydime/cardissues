@@ -199,9 +199,9 @@ def ingest(pdf_path: Path | None = None, force: bool = False) -> None:
     # Late import so the module is importable even without chromadb at parse time
     from card_issues.chroma_store import upsert_chunks  # noqa: PLC0415
 
-    all_ids: list[str] = []
-    all_documents: list[str] = []
-    all_metadatas: list[dict] = []
+    # Use a dict keyed by chunk_id to deduplicate; later entries win so that
+    # merged multi-page bodies overwrite earlier partial ones.
+    chunks_by_id: dict[str, tuple[str, dict]] = {}
 
     for row in df.iter_rows(named=True):
         chunks = split_into_subsections(row["condition_id"], row["title"], row["body"])
@@ -212,9 +212,11 @@ def ingest(pdf_path: Path | None = None, force: bool = False) -> None:
             "transaction_type": row["transaction_type"],
         }
         for chunk_id, subsection, document in chunks:
-            all_ids.append(chunk_id)
-            all_documents.append(document)
-            all_metadatas.append({**base_meta, "subsection": subsection})
+            chunks_by_id[chunk_id] = (document, {**base_meta, "subsection": subsection})
+
+    all_ids = list(chunks_by_id.keys())
+    all_documents = [v[0] for v in chunks_by_id.values()]
+    all_metadatas = [v[1] for v in chunks_by_id.values()]
 
     upsert_chunks(all_ids, all_documents, all_metadatas)
     print(f"Upserted {len(all_ids)} chunks into ChromaDB.")

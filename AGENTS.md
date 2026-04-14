@@ -83,10 +83,10 @@ All tools are synchronous and return JSON-serialisable values. Do not add
 uv sync
 
 # Run the MCP server — stdio transport (default for MCP clients)
-uv run visa-guidelines
+uv run card_issues
 
 # Run with FastMCP dev inspector — browser UI on http://localhost:5173
-uv run fastmcp dev src/visa-guidelines/server.py
+uv run fastmcp dev src/card_issues/server.py
 
 # Lint + format
 uv run ruff check --fix src/
