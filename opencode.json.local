@@ -2,9 +2,8 @@
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "visa-guidelines": {
-      "type": "remote",
-      "url": "http://localhost:8000/mcp"
+      "type": "local",
+      "command": ["uv", "run", "visa-guidelines"]
     }
   }
 }
-
