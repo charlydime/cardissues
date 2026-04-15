@@ -185,9 +185,10 @@ def main() -> None:
     import os
 
     transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    host = os.environ.get("MCP_HOST", "127.0.0.1")
     if transport == "sse":
         # Use Streamable HTTP (modern MCP spec) — served at /mcp
-        mcp.run(transport="http")
+        mcp.run(transport="http", host=host)
     else:
         mcp.run(transport="stdio")
 
