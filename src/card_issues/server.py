@@ -182,7 +182,14 @@ def execute_sql_query(sql: str) -> list[dict]:
 
 
 def main() -> None:
-    mcp.run()
+    import os
+
+    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    if transport == "sse":
+        # Use Streamable HTTP (modern MCP spec) — served at /mcp
+        mcp.run(transport="http")
+    else:
+        mcp.run(transport="stdio")
 
 
 if __name__ == "__main__":
